@@ -1,0 +1,26 @@
+#!/bin/bash
+
+if [ -z "$3" ]; then
+    echo "Usage: static-ip <interface> <ip/mask> <gateway>"
+    echo "Example: static-ip eth0 192.168.1.10/24 192.168.1.1"
+    echo ""
+    echo "Remove configuration:"
+    echo "  ip addr del 192.168.1.10/24 dev eth0"
+    echo "  ip route del default"
+    echo ""
+    echo "Flush all IPs:"
+    echo "  ip addr flush dev eth0"
+    exit 1
+fi
+
+IFACE=$1
+IP=$2
+GW=$3
+
+echo "Configuring $IFACE with static IP..."
+ip link set $IFACE up
+ip addr add $IP dev $IFACE
+ip route add default via $GW
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+echo "Done. Check with: ip addr show $IFACE"

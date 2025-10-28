@@ -1,0 +1,61 @@
+#!/bin/bash
+if [ -z "$3" ]; then
+    echo "Usage: bond-create <bond_name> <mode> <interface1> <interface2> ..."
+    echo ""
+    echo "Modes:"
+    echo "  balance-rr (0)      - Round-robin"
+    echo "  active-backup (1)   - Active-backup"
+    echo "  balance-xor (2)     - XOR"
+    echo "  broadcast (3)       - Broadcast"
+    echo "  802.3ad (4)         - LACP (IEEE 802.3ad)"
+    echo "  balance-tlb (5)     - Adaptive transmit load balancing"
+    echo "  balance-alb (6)     - Adaptive load balancing"
+    echo ""
+    echo "Example: bond-create bond0 802.3ad eth0 eth1"
+    echo ""
+    echo "Remove bond:"
+    echo "  ip link set bond0 down"
+    echo "  ip link del bond0"
+    echo ""
+    echo "Remove slave from bond:"
+    echo "  ip link set eth0 nomaster"
+    exit 1
+fi
+
+BOND=$1
+MODE=$2
+shift 2
+SLAVES="$@"
+
+case $MODE in
+    balance-rr|0) MODE_NUM=0 ;;
+    active-backup|1) MODE_NUM=1 ;;
+    balance-xor|2) MODE_NUM=2 ;;
+    broadcast|3) MODE_NUM=3 ;;
+    802.3ad|4) MODE_NUM=4 ;;
+    balance-tlb|5) MODE_NUM=5 ;;
+    balance-alb|6) MODE_NUM=6 ;;
+    *) echo "Invalid mode: $MODE"; exit 1 ;;
+esac
+
+modprobe bonding 2>/dev/null
+echo "Creating bond $BOND with mode $MODE..."
+ip link add $BOND type bond mode $MODE_NUM
+
+if [ "$MODE_NUM" = "4" ]; then
+    echo "Setting LACP parameters..."
+    echo "fast" > /sys/class/net/$BOND/bonding/lacp_rate
+    echo 100 > /sys/class/net/$BOND/bonding/miimon
+fi
+
+for SLAVE in $SLAVES; do
+    echo "Adding $SLAVE to $BOND..."
+    ip link set $SLAVE down
+    ip link set $SLAVE master $BOND
+done
+
+ip link set $BOND up
+echo "Done. Bond interface: $BOND"
+echo "Configure with: static-ip $BOND <ip/mask> <gateway>"
+echo "           or: dhcp-config $BOND"
+echo "View status: cat /proc/net/bonding/$BOND"

@@ -1,0 +1,16 @@
+#!/bin/bash
+if [ -z "$1" ]; then
+    echo "Usage: dhcp-config <interface>"
+    echo "Example: dhcp-config eth0"
+    echo ""
+    echo "Remove DHCP:"
+    echo "  dhcpcd -k eth0"
+    echo "  ip addr flush dev eth0"
+    exit 1
+fi
+
+IFACE=$1
+echo "Configuring $IFACE with DHCP..."
+ip link set $IFACE up
+dhcpcd $IFACE
+echo "Done. Check with: ip addr show $IFACE"

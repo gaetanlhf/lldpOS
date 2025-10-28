@@ -1,0 +1,34 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+    echo "Usage: dns-config <dns1> [dns2] [dns3]"
+    echo ""
+    echo "Examples:"
+    echo "  dns-config 8.8.8.8"
+    echo "  dns-config 8.8.8.8 8.8.4.4"
+    echo "  dns-config 1.1.1.1 1.0.0.1"
+    echo ""
+    echo "Common DNS servers:"
+    echo "  Google:     8.8.8.8, 8.8.4.4"
+    echo "  Cloudflare: 1.1.1.1, 1.0.0.1"
+    echo "  Quad9:      9.9.9.9, 149.112.112.112"
+    echo "  OpenDNS:    208.67.222.222, 208.67.220.220"
+    echo ""
+    echo "View current DNS:"
+    echo "  cat /etc/resolv.conf"
+    exit 1
+fi
+
+echo "Configuring DNS servers..."
+echo "# Configured by dns-config" > /etc/resolv.conf
+
+for dns in "$@"; do
+    echo "nameserver $dns" >> /etc/resolv.conf
+    echo "Added: $dns"
+done
+
+echo ""
+echo "Current DNS configuration:"
+cat /etc/resolv.conf
+echo ""
+echo "Test with: dig google.com"

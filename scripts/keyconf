@@ -1,0 +1,26 @@
+#!/bin/bash
+
+VERSION=$(cat /etc/lldpos-version 2>/dev/null || echo "unknown")
+
+choice=$(dialog --title "lldpOS v$VERSION" \
+                --no-cancel \
+                --menu "Select keyboard layout:" 12 50 6 \
+                1 "US (QWERTY)" \
+                2 "FR (AZERTY)" \
+                3 "DE (QWERTZ)" \
+                4 "UK (QWERTY)" \
+                5 "ES (QWERTY)" \
+                3>&1 1>&2 2>&3)
+
+clear
+
+case $choice in
+    1) loadkeys us && echo "US keyboard loaded" ;;
+    2) loadkeys fr && echo "FR keyboard loaded" ;;
+    3) loadkeys de && echo "DE keyboard loaded" ;;
+    4) loadkeys uk && echo "UK keyboard loaded" ;;
+    5) loadkeys es && echo "ES keyboard loaded" ;;
+esac
+
+echo ""
+/usr/local/bin/shell-welcome

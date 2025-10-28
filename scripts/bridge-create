@@ -1,0 +1,34 @@
+#!/bin/bash
+if [ -z "$2" ]; then
+    echo "Usage: bridge-create <bridge_name> <interface1> <interface2> ..."
+    echo "Example: bridge-create br0 eth0 eth1"
+    echo ""
+    echo "Remove bridge:"
+    echo "  ip link set br0 down"
+    echo "  ip link del br0"
+    echo ""
+    echo "Remove interface from bridge:"
+    echo "  ip link set eth0 nomaster"
+    echo ""
+    echo "List bridge ports:"
+    echo "  bridge link"
+    exit 1
+fi
+
+BRIDGE=$1
+shift
+IFACES="$@"
+
+echo "Creating bridge $BRIDGE..."
+ip link add $BRIDGE type bridge
+
+for IFACE in $IFACES; do
+    echo "Adding $IFACE to $BRIDGE..."
+    ip link set $IFACE up
+    ip link set $IFACE master $BRIDGE
+done
+
+ip link set $BRIDGE up
+echo "Done. Bridge interface: $BRIDGE"
+echo "Configure with: static-ip $BRIDGE <ip/mask> <gateway>"
+echo "           or: dhcp-config $BRIDGE"

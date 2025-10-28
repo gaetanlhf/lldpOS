@@ -1,0 +1,22 @@
+#!/bin/bash
+
+clear
+echo "╔════════════════════════════════════════════════════════════╗"
+echo "║                lldpOS Shell - Network Tools                ║"
+echo "╚════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Network Helpers:"
+echo "  nethelp           - Display network configuration guide"
+echo "  dhcp-config       - Configure DHCP on interface"
+echo "  static-ip         - Configure static IP"
+echo "  vlan-create       - Create VLAN interface"
+echo "  bond-create       - Create bond/LACP interface"
+echo "  bridge-create     - Create bridge interface"
+echo "  dns-config        - Configure DNS servers"
+echo ""
+echo "Keyboard & Display:"
+echo "  keyconf           - Reconfigure keyboard layout"
+echo "  welcome           - Show this welcome screen"
+echo ""
+echo "Type 'exit' to return to menu"
+echo ""

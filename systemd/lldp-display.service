@@ -1,0 +1,17 @@
+[Unit]
+Description=LLDP Display
+After=lldpd.service
+Requires=lldpd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/lldp-display.sh
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
