@@ -192,7 +192,7 @@ show_neighbor_details() {
         dialog --title "lldpOS v$VERSION" \
             --msgbox "No LLDP information available for $local_port" 10 50
     else
-        dialog --title "lldpOS v$VERSION - $local_port -> $switch_name:$switch_port" \
+        dialog --title "lldpOS v$VERSION" \
             --textbox "$tmpfile" 30 90
     fi
 
