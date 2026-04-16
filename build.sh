@@ -140,12 +140,17 @@ chroot "$ROOTFS" apk add --no-cache \
     kbd-bkeymaps \
     dhcpcd \
     less \
-    nano
+    nano \
+    bash-completion
 
 echo "=== Installing scripts ==="
 mkdir -p "$ROOTFS/usr/local/bin"
 cp "$SCRIPTS_DIR"/* "$ROOTFS/usr/local/bin/"
 chmod +x "$ROOTFS/usr/local/bin"/*
+
+echo "=== Installing bash completion ==="
+mkdir -p "$ROOTFS/etc/bash_completion.d"
+mv "$ROOTFS/usr/local/bin/lldpos-completion.bash" "$ROOTFS/etc/bash_completion.d/lldpos"
 
 echo "=== Installing OpenRC service ==="
 cp "$OPENRC_DIR/generate-hostname" "$ROOTFS/etc/init.d/generate-hostname"
@@ -178,6 +183,13 @@ rc-update add lldpd default
 rc-update add networking default
 passwd -d root
 CHROOT
+
+echo "=== Configuring bash ==="
+cat > "$ROOTFS/root/.bashrc" << 'EOF'
+if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+fi
+EOF
 
 echo "=== Configuring loopback interface ==="
 mkdir -p "$ROOTFS/etc/network"
