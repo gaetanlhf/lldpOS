@@ -446,10 +446,9 @@ EOF
 grub-mkimage --format=x86_64-efi --output="$WORK_DIR/efi-temp/EFI/BOOT/BOOTX64.EFI" --prefix="/EFI/BOOT" --config="$WORK_DIR/efi-embed.cfg" part_gpt part_msdos iso9660 fat normal linux search search_fs_file configfile all_video efi_gop efi_uga
 dd if=/dev/zero of="$WORK_DIR/efi.img" bs=1M count=4
 mkfs.vfat "$WORK_DIR/efi.img"
-mkdir -p "$WORK_DIR/efi-mount"
-mount -o loop "$WORK_DIR/efi.img" "$WORK_DIR/efi-mount"
-cp -r "$WORK_DIR/efi-temp/EFI" "$WORK_DIR/efi-mount/"
-umount "$WORK_DIR/efi-mount"
+mmd -i "$WORK_DIR/efi.img" ::/EFI ::/EFI/BOOT
+mcopy -i "$WORK_DIR/efi.img" "$WORK_DIR/efi-temp/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/
+mcopy -i "$WORK_DIR/efi.img" "$WORK_DIR/efi-temp/EFI/BOOT/grub.cfg" ::/EFI/BOOT/
 mkdir -p "$ISO_DIR/EFI/BOOT"
 cp "$WORK_DIR/efi-temp/EFI/BOOT/BOOTX64.EFI" "$ISO_DIR/EFI/BOOT/"
 cp "$WORK_DIR/efi-temp/EFI/BOOT/grub.cfg" "$ISO_DIR/EFI/BOOT/"
