@@ -36,6 +36,32 @@ wait_for_lldp_data() {
     return 1
 }
 
+count_neighbors() {
+    lldpctl -f keyvalue 2>/dev/null | grep -c "\.chassis\.name=" 2>/dev/null || echo "0"
+}
+
+get_local_iface_info() {
+    local iface=$1
+    local tmpfile=$2
+
+    local mac speed duplex ips state
+
+    mac=$(cat "/sys/class/net/$iface/address" 2>/dev/null || echo "N/A")
+    state=$(cat "/sys/class/net/$iface/operstate" 2>/dev/null || echo "unknown")
+    speed=$(ethtool "$iface" 2>/dev/null | awk '/Speed:/ {print $2}')
+    duplex=$(ethtool "$iface" 2>/dev/null | awk '/Duplex:/ {print $2}')
+    ips=$(ip -4 addr show "$iface" 2>/dev/null | awk '/inet / {print $2}' | tr '\n' ', ' | sed 's/,$//')
+
+    echo "--- Local Interface ---" >> "$tmpfile"
+    printf "  %-20s : %s\n" "Interface" "$iface" >> "$tmpfile"
+    printf "  %-20s : %s\n" "State" "$state" >> "$tmpfile"
+    printf "  %-20s : %s\n" "MAC" "$mac" >> "$tmpfile"
+    [ -n "$speed" ] && printf "  %-20s : %s\n" "Speed" "$speed" >> "$tmpfile"
+    [ -n "$duplex" ] && printf "  %-20s : %s\n" "Duplex" "$duplex" >> "$tmpfile"
+    [ -n "$ips" ] && printf "  %-20s : %s\n" "IP(s)" "$ips" >> "$tmpfile"
+    echo "" >> "$tmpfile"
+}
+
 show_neighbors() {
     local menu_items=()
     local local_ports=()
@@ -87,7 +113,7 @@ show_neighbors() {
         3>&1 1>&2 2>&3)
 
     local ret=$?
-    
+
     if [ $ret -eq 3 ]; then
         show_neighbors
         return
@@ -108,27 +134,66 @@ show_neighbor_details() {
 
     dialog --title "lldpOS v$VERSION" --infobox "Loading LLDP details for $local_port..." 5 50
 
-    echo "Local port: $local_port" >> "$tmpfile"
-    echo "Switch: $switch_name" >> "$tmpfile"
-    echo "Switch port: $switch_port" >> "$tmpfile"
-    echo "" >> "$tmpfile"
-    echo "Details:" >> "$tmpfile"
+    get_local_iface_info "$local_port" "$tmpfile"
+
+    local chassis_id chassis_descr chassis_mgmt
+    local port_id port_descr port_ttl
+    local sys_cap sys_cap_enabled
+    local vlans=""
 
     while IFS='=' read -r key value; do
         [[ -z "$key" || -z "$value" ]] && continue
-        if [[ "$key" == lldp.$local_port.* ]]; then
-            local clean_key="${key#lldp.$local_port.}"
-            clean_key="${clean_key//./ }"
-            printf "%-30s : %s\n" "$clean_key" "$value" >> "$tmpfile"
-        fi
+        [[ "$key" != lldp."$local_port".* ]] && continue
+
+        case "$key" in
+            *chassis.name)       chassis_name="$value" ;;
+            *chassis.descr)      chassis_descr="$value" ;;
+            *chassis.id)         chassis_id="$value" ;;
+            *chassis.mgmt-ip*)   chassis_mgmt="${chassis_mgmt:+$chassis_mgmt, }$value" ;;
+            *port.ifname)        port_id="$value" ;;
+            *port.descr)         port_descr="$value" ;;
+            *port.ttl)           port_ttl="$value" ;;
+            *capability*enabled) sys_cap_enabled="${sys_cap_enabled:+$sys_cap_enabled, }$value" ;;
+            *capability*type)    sys_cap="${sys_cap:+$sys_cap, }$value" ;;
+            *vlan.vlan-id)       vlans="${vlans:+$vlans, }$value" ;;
+            *vlan.pvid)          pvid="$value" ;;
+        esac
     done < <(lldpctl -f keyvalue 2>/dev/null)
+
+    echo "--- Remote Chassis ---" >> "$tmpfile"
+    printf "  %-20s : %s\n" "Name" "$switch_name" >> "$tmpfile"
+    [ -n "$chassis_id" ] && printf "  %-20s : %s\n" "Chassis ID" "$chassis_id" >> "$tmpfile"
+    [ -n "$chassis_descr" ] && printf "  %-20s : %s\n" "Description" "$chassis_descr" >> "$tmpfile"
+    [ -n "$chassis_mgmt" ] && printf "  %-20s : %s\n" "Management IP" "$chassis_mgmt" >> "$tmpfile"
+    echo "" >> "$tmpfile"
+
+    echo "--- Remote Port ---" >> "$tmpfile"
+    printf "  %-20s : %s\n" "Port" "$switch_port" >> "$tmpfile"
+    [ -n "$port_id" ] && [ "$port_id" != "$switch_port" ] && printf "  %-20s : %s\n" "Port ID" "$port_id" >> "$tmpfile"
+    [ -n "$port_descr" ] && printf "  %-20s : %s\n" "Description" "$port_descr" >> "$tmpfile"
+    [ -n "$port_ttl" ] && printf "  %-20s : %s\n" "TTL" "${port_ttl}s" >> "$tmpfile"
+    echo "" >> "$tmpfile"
+
+    if [ -n "$sys_cap" ] || [ -n "$sys_cap_enabled" ]; then
+        echo "--- Capabilities ---" >> "$tmpfile"
+        [ -n "$sys_cap" ] && printf "  %-20s : %s\n" "Available" "$sys_cap" >> "$tmpfile"
+        [ -n "$sys_cap_enabled" ] && printf "  %-20s : %s\n" "Enabled" "$sys_cap_enabled" >> "$tmpfile"
+        echo "" >> "$tmpfile"
+    fi
+
+    if [ -n "$vlans" ] || [ -n "$pvid" ]; then
+        echo "--- VLAN ---" >> "$tmpfile"
+        [ -n "$pvid" ] && printf "  %-20s : %s\n" "Native VLAN (PVID)" "$pvid" >> "$tmpfile"
+        [ -n "$vlans" ] && printf "  %-20s : %s\n" "VLAN(s)" "$vlans" >> "$tmpfile"
+        echo "" >> "$tmpfile"
+    fi
 
     if [ ! -s "$tmpfile" ]; then
         dialog --title "lldpOS v$VERSION" \
             --msgbox "No LLDP information available for $local_port" 10 50
     else
-        dialog --title "lldpOS v$VERSION" \
-            --textbox "$tmpfile" 40 130
+        dialog --title "lldpOS v$VERSION - $local_port -> $switch_name:$switch_port" \
+            --textbox "$tmpfile" 30 90
     fi
 
     rm -f "$tmpfile"
@@ -136,12 +201,14 @@ show_neighbor_details() {
 
 main_menu() {
     while true; do
+        local nb
+        nb=$(count_neighbors)
         local choice
         choice=$(dialog --title "lldpOS v$VERSION" \
             --no-cancel \
             --menu "Hostname: $(hostname)" \
             11 50 4 \
-            1 "View LLDP Neighbors" \
+            1 "View LLDP Neighbors ($nb found)" \
             2 "Shell Access" \
             3 "Reboot System" \
             4 "Shutdown System" \
