@@ -1,0 +1,16 @@
+#!/sbin/openrc-run
+
+description="Generate random lldpOS hostname"
+
+depend() {
+    before hostname lldpd
+}
+
+start() {
+    ebegin "Generating random hostname"
+    local h
+    h="$(/usr/local/bin/generate-hostname.sh)"
+    hostname "$h"
+    echo "$h" > /etc/hostname
+    eend $?
+}

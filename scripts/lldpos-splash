@@ -1,0 +1,6 @@
+#!/bin/sh
+export TERM=linux
+export DIALOGRC=/dev/null
+VERSION=$(cat /etc/lldpos-version 2>/dev/null || echo "unknown")
+clear
+dialog --title " lldpOS v$VERSION " --infobox "\n   Starting...\n" 6 32

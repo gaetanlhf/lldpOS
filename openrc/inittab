@@ -1,0 +1,10 @@
+::sysinit:/usr/local/bin/lldpos-splash
+::sysinit:/sbin/openrc sysinit >/dev/null 2>&1
+::sysinit:/sbin/openrc boot >/dev/null 2>&1
+::wait:/sbin/openrc default >/dev/null 2>&1
+
+tty1::respawn:/usr/local/bin/lldp-display.sh
+
+::ctrlaltdel:/sbin/reboot
+::shutdown:/usr/local/bin/lldpos-shutdown
+::shutdown:/sbin/openrc shutdown >/dev/null 2>&1

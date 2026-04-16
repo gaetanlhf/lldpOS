@@ -4,12 +4,17 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_DIR="$SCRIPT_DIR/scripts"
-SYSTEMD_DIR="$SCRIPT_DIR/systemd"
+OPENRC_DIR="$SCRIPT_DIR/openrc"
 
-for cmd in debootstrap xorriso grub-mkimage cpio; do
+ALPINE_VERSION="3.23"
+ALPINE_RELEASE="3.23.4"
+ALPINE_ARCH="x86_64"
+ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine"
+
+for cmd in wget tar xorriso grub-mkimage cpio xz mkfs.vfat; do
     if ! command -v $cmd &> /dev/null; then
         echo "Error: $cmd not found"
-        echo "Install: apt install debootstrap xorriso grub-pc grub-efi-amd64-bin dosfstools cpio"
+        echo "Install: apt install wget xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools cpio xz-utils"
         exit 1
     fi
 done
@@ -28,12 +33,16 @@ REQUIRED_SCRIPTS=(
     "bond-create"
     "bridge-create"
     "lldp-display.sh"
+    "lldpos-splash"
+    "lldpos-shutdown"
+    "ip-info"
+    "port-test"
+    "iface-reset"
 )
 
-REQUIRED_SYSTEMD=(
-    "generate-hostname.service"
-    "lldp-display.service"
-    "getty@tty1-override.conf"
+REQUIRED_OPENRC=(
+    "generate-hostname"
+    "inittab"
 )
 
 MISSING=0
@@ -45,9 +54,9 @@ for script in "${REQUIRED_SCRIPTS[@]}"; do
     fi
 done
 
-for unit in "${REQUIRED_SYSTEMD[@]}"; do
-    if [ ! -f "$SYSTEMD_DIR/$unit" ]; then
-        echo "Error: Missing systemd file: systemd/$unit"
+for f in "${REQUIRED_OPENRC[@]}"; do
+    if [ ! -f "$OPENRC_DIR/$f" ]; then
+        echo "Error: Missing openrc file: openrc/$f"
         MISSING=1
     fi
 done
@@ -69,75 +78,293 @@ OUTPUT_ISO="lldpOS.iso"
 rm -rf "$WORK_DIR"
 mkdir -p "$ROOTFS" "$ISO_DIR"
 
-echo "=== Installing base system ==="
-debootstrap --variant=minbase \
-    --include=linux-image-amd64,firmware-linux,firmware-misc-nonfree,firmware-realtek,firmware-bnx2,firmware-bnx2x,firmware-netxen,firmware-qlogic,firmware-myricom,firmware-netronome,lldpd,systemd-sysv,dialog,iputils-ping,bind9-dnsutils,bind9-host,tcpdump,curl,wget,iproute2,net-tools,traceroute,ethtool,iperf3,mtr-tiny,kbd,console-data,dhcpcd5,bridge-utils,vlan,less,nano \
-    --components=main,non-free-firmware,non-free,contrib \
-    stable "$ROOTFS" http://deb.debian.org/debian
+MINIROOTFS_URL="$ALPINE_MIRROR/v$ALPINE_VERSION/releases/$ALPINE_ARCH/alpine-minirootfs-$ALPINE_RELEASE-$ALPINE_ARCH.tar.gz"
+MINIROOTFS_TARBALL="$WORK_DIR/alpine-minirootfs.tar.gz"
+
+echo "=== Fetching Alpine minirootfs ==="
+wget -q -O "$MINIROOTFS_TARBALL" "$MINIROOTFS_URL"
+
+echo "=== Extracting minirootfs ==="
+tar -xzf "$MINIROOTFS_TARBALL" -C "$ROOTFS"
+
+echo "=== Configuring apk repositories ==="
+cat > "$ROOTFS/etc/apk/repositories" << EOF
+$ALPINE_MIRROR/v$ALPINE_VERSION/main
+$ALPINE_MIRROR/v$ALPINE_VERSION/community
+EOF
+
+echo "=== Preparing chroot ==="
+cp /etc/resolv.conf "$ROOTFS/etc/resolv.conf"
+mount --bind /proc "$ROOTFS/proc"
+mount --bind /sys "$ROOTFS/sys"
+mount --bind /dev "$ROOTFS/dev"
+mount --bind /dev/pts "$ROOTFS/dev/pts"
+
+cleanup_mounts() {
+    set +e
+    umount "$ROOTFS/dev/pts" 2>/dev/null
+    umount "$ROOTFS/dev" 2>/dev/null
+    umount "$ROOTFS/sys" 2>/dev/null
+    umount "$ROOTFS/proc" 2>/dev/null
+    set -e
+}
+trap cleanup_mounts EXIT
+
+echo "=== Installing packages ==="
+chroot "$ROOTFS" apk update
+chroot "$ROOTFS" apk add --no-cache \
+    alpine-base \
+    bash \
+    linux-lts \
+    linux-firmware-bnx2 \
+    linux-firmware-bnx2x \
+    linux-firmware-realtek \
+    linux-firmware-qlogic \
+    linux-firmware-qed \
+    linux-firmware-myricom \
+    linux-firmware-netronome \
+    lldpd \
+    dialog \
+    iputils \
+    bind-tools \
+    tcpdump \
+    curl \
+    wget \
+    iproute2 \
+    net-tools \
+    traceroute \
+    ethtool \
+    iperf3 \
+    mtr \
+    kbd \
+    kbd-bkeymaps \
+    dhcpcd \
+    less \
+    nano
 
 echo "=== Installing scripts ==="
 mkdir -p "$ROOTFS/usr/local/bin"
 cp "$SCRIPTS_DIR"/* "$ROOTFS/usr/local/bin/"
 chmod +x "$ROOTFS/usr/local/bin"/*
 
+echo "=== Installing OpenRC service ==="
+cp "$OPENRC_DIR/generate-hostname" "$ROOTFS/etc/init.d/generate-hostname"
+chmod +x "$ROOTFS/etc/init.d/generate-hostname"
+
+echo "=== Installing inittab ==="
+cp "$OPENRC_DIR/inittab" "$ROOTFS/etc/inittab"
+
 echo "=== Installing init script ==="
 cat > "$ROOTFS/init" << 'EOFINIT'
 #!/bin/sh
-exec /usr/lib/systemd/systemd
+exec /sbin/init
 EOFINIT
 chmod +x "$ROOTFS/init"
-
-echo "=== Installing systemd units ==="
-mkdir -p "$ROOTFS/etc/systemd/system"
-mkdir -p "$ROOTFS/etc/systemd/system/getty@tty1.service.d"
-cp "$SYSTEMD_DIR/generate-hostname.service" "$ROOTFS/etc/systemd/system/"
-cp "$SYSTEMD_DIR/lldp-display.service" "$ROOTFS/etc/systemd/system/"
-cp "$SYSTEMD_DIR/getty@tty1-override.conf" "$ROOTFS/etc/systemd/system/getty@tty1.service.d/override.conf"
 
 echo "=== Creating version file ==="
 date '+%Y.%m.%d' > "$ROOTFS/etc/lldpos-version"
 
-for i in {2..6}; do
-    chroot "$ROOTFS" systemctl mask getty@tty$i.service
-done
-chroot "$ROOTFS" systemctl mask serial-getty@ttyS0.service
-
 echo "=== Configuring services ==="
-chroot "$ROOTFS" /bin/bash << 'CHROOT'
-systemctl enable generate-hostname
-systemctl enable lldpd
-systemctl enable lldp-display
-systemctl set-default multi-user.target
+chroot "$ROOTFS" /bin/sh << 'CHROOT'
+rc-update add devfs sysinit
+rc-update add dmesg sysinit
+rc-update add hwdrivers sysinit
+rc-update add modules boot
+rc-update add hostname boot
+rc-update add bootmisc boot
+rc-update add syslog boot
+rc-update add generate-hostname boot
+rc-update add lldpd default
+rc-update add networking default
 passwd -d root
 CHROOT
 
-echo "=== Clean apt ==="
-chroot "$ROOTFS" apt-get clean
+echo "=== Configuring loopback interface ==="
+mkdir -p "$ROOTFS/etc/network"
+cat > "$ROOTFS/etc/network/interfaces" << 'EOF'
+auto lo
+iface lo inet loopback
+EOF
 
-echo "=== Removing non-English locales ==="
-find "$ROOTFS/usr/share/locale" -mindepth 1 -maxdepth 1 ! -name 'en*' -exec rm -rf {} + 2>/dev/null || true
-find "$ROOTFS/usr/share/i18n/locales" -mindepth 1 -maxdepth 1 ! -name 'en*' -exec rm -rf {} + 2>/dev/null || true
+echo "=== Configuring udev ==="
+mkdir -p "$ROOTFS/etc/udev"
+cat > "$ROOTFS/etc/udev/udev.conf" << 'EOF'
+udev_log=err
+event_timeout=10
+EOF
 
-echo "=== Removing kernel headers and sources ==="
-rm -rf "$ROOTFS/usr/src"/*
-rm -rf "$ROOTFS/lib/modules"/*/build
-rm -rf "$ROOTFS/lib/modules"/*/source
+echo "=== Blacklisting storage modules (network-only ISO) ==="
+mkdir -p "$ROOTFS/etc/modprobe.d"
+cat > "$ROOTFS/etc/modprobe.d/lldpos-no-storage.conf" << 'EOF'
+blacklist nvme
+blacklist nvme_core
+blacklist ahci
+blacklist libahci
+blacklist sd_mod
+blacklist sr_mod
+blacklist usb_storage
+blacklist uas
+blacklist mmc_block
+blacklist mmc_core
+blacklist sdhci
+blacklist sdhci_pci
+blacklist floppy
+blacklist virtio_blk
+blacklist virtio_scsi
+blacklist vmw_pvscsi
+blacklist xen_blkfront
+blacklist hv_storvsc
+blacklist megaraid_sas
+blacklist mpt3sas
+blacklist mpt2sas
+blacklist aacraid
+blacklist hpsa
+blacklist arcmsr
+blacklist 3w_9xxx
+blacklist qla2xxx
+blacklist lpfc
+EOF
+
+echo "=== Releasing chroot mounts ==="
+cleanup_mounts
+trap - EXIT
+
+echo "=== Wiping build-time traces ==="
+cat > "$ROOTFS/etc/resolv.conf" << 'EOF'
+# Configured at runtime by dhcpcd or dns-config
+EOF
+cat > "$ROOTFS/etc/hosts" << 'EOF'
+127.0.0.1   localhost
+::1         localhost
+EOF
+echo "localhost" > "$ROOTFS/etc/hostname"
+: > "$ROOTFS/etc/machine-id"
+rm -rf "$ROOTFS/var/lib/dbus" 2>/dev/null || true
+rm -rf "$ROOTFS/var/log"/* 2>/dev/null || true
+rm -rf "$ROOTFS/tmp"/* 2>/dev/null || true
+rm -rf "$ROOTFS/var/tmp"/* 2>/dev/null || true
+rm -rf "$ROOTFS/var/cache"/* 2>/dev/null || true
+rm -rf "$ROOTFS/var/spool"/* 2>/dev/null || true
+rm -rf "$ROOTFS/var/empty"/* 2>/dev/null || true
+rm -rf "$ROOTFS/root/".[!.]* 2>/dev/null || true
+rm -rf "$ROOTFS/home"/*/.[!.]* 2>/dev/null || true
+rm -f "$ROOTFS/var/lib/apk/lock" 2>/dev/null || true
+rm -f "$ROOTFS/var/lib/apk/scripts.tar" 2>/dev/null || true
+rm -f "$ROOTFS/var/lib/misc/random-seed" 2>/dev/null || true
+rm -f "$ROOTFS/etc/ssh"/ssh_host_* 2>/dev/null || true
+rm -f "$ROOTFS/etc/passwd-" "$ROOTFS/etc/shadow-" "$ROOTFS/etc/group-" "$ROOTFS/etc/gshadow-" 2>/dev/null || true
+rm -f "$ROOTFS/etc/.pwd.lock" 2>/dev/null || true
+rm -f "$ROOTFS/etc/mtab" 2>/dev/null || true
+ln -sf /proc/mounts "$ROOTFS/etc/mtab"
+rm -f "$ROOTFS"/.dockerenv 2>/dev/null || true
+rm -f "$ROOTFS"/.dockerinit 2>/dev/null || true
+find "$ROOTFS" -name ".bash_history" -delete 2>/dev/null || true
+find "$ROOTFS" -name ".ash_history" -delete 2>/dev/null || true
+find "$ROOTFS" -name ".wget-hsts" -delete 2>/dev/null || true
+find "$ROOTFS" -name ".python_history" -delete 2>/dev/null || true
+
+echo "=== Cleaning rootfs ==="
+rm -rf "$ROOTFS/var/cache/apk"/* 2>/dev/null || true
+rm -rf "$ROOTFS/usr/share/man"/* 2>/dev/null || true
+rm -rf "$ROOTFS/usr/share/doc"/* 2>/dev/null || true
+rm -rf "$ROOTFS/lib/modules"/*/build 2>/dev/null || true
+rm -rf "$ROOTFS/lib/modules"/*/source 2>/dev/null || true
+rm -f "$ROOTFS/boot/initramfs-"* 2>/dev/null || true
+
+echo "=== Removing unused kernel modules (network-only) ==="
+KVER=$(ls "$ROOTFS/lib/modules" | head -n1)
+MODBASE="$ROOTFS/lib/modules/$KVER/kernel"
+for dir in \
+    drivers/ata \
+    drivers/scsi \
+    drivers/nvme \
+    drivers/block \
+    drivers/mmc \
+    drivers/md \
+    drivers/firewire \
+    drivers/target \
+    drivers/media \
+    drivers/staging \
+    drivers/infiniband \
+    drivers/bluetooth \
+    drivers/nvdimm \
+    drivers/usb/storage \
+    drivers/input/joystick \
+    drivers/input/touchscreen \
+    drivers/input/gameport \
+    drivers/input/tablet \
+    drivers/parport \
+    drivers/isdn \
+    drivers/pcmcia \
+    drivers/memstick \
+    drivers/auxdisplay \
+    drivers/accessibility \
+    drivers/net/wireless \
+    drivers/net/can \
+    drivers/net/hamradio \
+    drivers/net/ppp \
+    drivers/net/slip \
+    drivers/net/plip \
+    drivers/net/wan \
+    drivers/net/wwan \
+    drivers/net/fddi \
+    drivers/net/arcnet \
+    drivers/net/appletalk \
+    drivers/net/fjes \
+    drivers/atm \
+    drivers/nfc \
+    drivers/macintosh \
+    drivers/w1 \
+    drivers/hsi \
+    drivers/most \
+    drivers/rapidio \
+    drivers/sbus \
+    drivers/siox \
+    drivers/slimbus \
+    drivers/ssb \
+    drivers/soundwire \
+    drivers/visorbus \
+    sound \
+    fs/btrfs \
+    fs/xfs \
+    fs/jfs \
+    fs/reiserfs \
+    fs/ocfs2 \
+    fs/gfs2 \
+    fs/nilfs2 \
+    fs/udf \
+    fs/hfs \
+    fs/hfsplus \
+    fs/affs \
+    fs/jffs2 \
+    fs/ubifs \
+    fs/squashfs \
+    fs/erofs \
+    fs/exfat \
+    fs/ntfs \
+    fs/ntfs3 \
+    fs/ceph \
+    fs/cifs \
+    fs/nfs \
+    fs/nfsd \
+    fs/lockd \
+    fs/fscache \
+    fs/cachefiles \
+    fs/coda \
+    fs/minix \
+    fs/romfs \
+    fs/sysv \
+    fs/bfs \
+    fs/9p \
+    fs/fat ; do
+    rm -rf "$MODBASE/$dir" 2>/dev/null || true
+done
+
+echo "=== Rebuilding module dependencies ==="
+chroot "$ROOTFS" depmod -a "$KVER" 2>/dev/null || true
 
 echo "=== Compressing kernel modules ==="
-find "$ROOTFS/lib/modules" -name "*.ko" -exec xz -9 --check=crc32 {} \; 2>/dev/null || true
-
-echo "=== Package manager cleanup ==="
-rm -rf "$ROOTFS/var/lib/dpkg/info"/*
-rm -rf "$ROOTFS/var/cache/debconf"/*
-
-echo "=== Removing Python cache ==="
-find "$ROOTFS" -type f -name "*.pyc" -delete 2>/dev/null || true
-find "$ROOTFS" -type f -name "*.pyo" -delete 2>/dev/null || true
-find "$ROOTFS" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-
-echo "=== Removing test files ==="
-find "$ROOTFS" -type d -name "test" -path "*/lib/*" -exec rm -rf {} + 2>/dev/null || true
-find "$ROOTFS" -type d -name "tests" -path "*/lib/*" -exec rm -rf {} + 2>/dev/null || true
+find "$ROOTFS/lib/modules" -name "*.ko" -exec gzip -9 {} \; 2>/dev/null || true
 
 echo "=== Creating initramfs ==="
 cd "$ROOTFS"
@@ -150,7 +377,7 @@ find . \( \
     -path './var/cache/*' -o \
     -path './var/log/*' -o \
     -path './tmp/*' \
-\) -prune -o -print0 | cpio --null --create --format=newc | xz -9e --check=crc32 -T8 > "$ISO_DIR/initramfs.img"
+\) -prune -o -print0 | cpio --null --create --format=newc | gzip -9 > "$ISO_DIR/initramfs.img"
 cd -
 
 echo "=== Copying kernel ==="
@@ -167,7 +394,7 @@ insmod part_msdos
 insmod iso9660
 search --no-floppy --set=root --file /vmlinuz
 menuentry "lldpOS" {
-    linux /vmlinuz rw quiet
+    linux /vmlinuz rw quiet loglevel=3 modprobe.blacklist=nvme,nvme_core,ahci,libahci,sd_mod,sr_mod,usb_storage,uas,mmc_block,mmc_core,sdhci,sdhci_pci,floppy,virtio_blk,virtio_scsi,vmw_pvscsi,xen_blkfront,hv_storvsc,megaraid_sas,mpt3sas,mpt2sas,aacraid,hpsa,arcmsr,3w_9xxx,qla2xxx,lpfc
     initrd /initramfs.img
 }
 EOF
@@ -196,7 +423,7 @@ insmod search
 insmod search_fs_file
 search --no-floppy --set=root --file /vmlinuz
 menuentry "lldpOS" {
-    linux /vmlinuz rw quiet
+    linux /vmlinuz rw quiet loglevel=3 modprobe.blacklist=nvme,nvme_core,ahci,libahci,sd_mod,sr_mod,usb_storage,uas,mmc_block,mmc_core,sdhci,sdhci_pci,floppy,virtio_blk,virtio_scsi,vmw_pvscsi,xen_blkfront,hv_storvsc,megaraid_sas,mpt3sas,mpt2sas,aacraid,hpsa,arcmsr,3w_9xxx,qla2xxx,lpfc
     initrd /initramfs.img
 }
 EOF
@@ -221,6 +448,10 @@ xorriso -as mkisofs -o "$OUTPUT_ISO" -b boot/grub/bios.img -no-emul-boot -boot-l
 VERSION=$(cat "$ROOTFS/etc/lldpos-version")
 OUTPUT_ISO_VERSIONED="lldpOS-v${VERSION}.iso"
 mv "$OUTPUT_ISO" "$OUTPUT_ISO_VERSIONED"
+
+if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
+    chown "$HOST_UID:$HOST_GID" "$OUTPUT_ISO_VERSIONED"
+fi
 
 echo "=== Build complete ==="
 echo "ISO: $OUTPUT_ISO_VERSIONED ($(du -h $OUTPUT_ISO_VERSIONED | cut -f1))"

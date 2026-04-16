@@ -1,0 +1,11 @@
+#!/bin/sh
+export TERM=linux
+export DIALOGRC=/dev/null
+VERSION=$(cat /etc/lldpos-version 2>/dev/null || echo "unknown")
+if [ -f /run/lldpos-reboot ]; then
+    msg="\n   Rebooting...\n"
+else
+    msg="\n   Shutting down...\n"
+fi
+clear
+dialog --title " lldpOS v$VERSION " --infobox "$msg" 6 32

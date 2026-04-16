@@ -1,11 +1,12 @@
 #!/bin/bash
 export DIALOGRC=/dev/null
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 VERSION=$(cat /etc/lldpos-version 2>/dev/null || echo "unknown")
 
 wait_for_lldpd() {
     local timeout=30
     while [ $timeout -gt 0 ]; do
-        if systemctl is-active --quiet lldpd 2>/dev/null; then
+        if lldpctl >/dev/null 2>&1; then
             return 0
         fi
         sleep 1
@@ -159,7 +160,10 @@ main_menu() {
                 ;;
             3)
                 dialog --yesno "Reboot system now?" 7 40
-                [ $? -eq 0 ] && reboot
+                if [ $? -eq 0 ]; then
+                    touch /run/lldpos-reboot
+                    reboot
+                fi
                 ;;
             4)
                 dialog --yesno "Shutdown system now?" 7 40

@@ -32,8 +32,10 @@ lldpOS is a minimal, bootable Linux distribution designed for network engineers 
 Building lldpOS requires a Debian-based system with the following packages:
 
 ```bash
-sudo apt install debootstrap xorriso grub-pc grub-efi-amd64-bin dosfstools cpio
+sudo apt install wget xorriso grub-pc-bin grub-efi-amd64-bin grub-common mtools dosfstools cpio xz-utils
 ```
+
+Alternatively, build inside Docker (see `docker-build.sh`) — no host packages required beyond Docker itself.
 
 ### Build Process
 
@@ -49,9 +51,9 @@ sudo ./build.sh
 ```
 
 The build process will:
-1. Create a minimal Debian base system
-2. Install networking tools and firmware
-3. Configure systemd services for LLDP and hostname generation
+1. Fetch the Alpine Linux minirootfs and bootstrap it
+2. Install networking tools and firmware via `apk`
+3. Configure OpenRC services and `/etc/inittab` to launch the TUI on tty1
 4. Create a compressed initramfs
 5. Generate a hybrid BIOS/UEFI bootable ISO
 
@@ -75,10 +77,9 @@ lldpOS/
 │   ├── bond-create
 │   ├── bridge-create
 │   └── lldp-display.sh
-└── systemd/
-    ├── generate-hostname.service
-    ├── lldp-display.service
-    └── getty@tty1-override.conf
+└── openrc/
+    ├── generate-hostname
+    └── inittab
 ```
 
 ## Usage
@@ -255,37 +256,35 @@ keyconf
 ## Technical Details
 
 ### Base System
-- **Distribution**: Debian Stable (minimal variant)
-- **Kernel**: Linux mainline from Debian repository
-- **Init System**: systemd
+- **Distribution**: Alpine Linux (minirootfs)
+- **Kernel**: `linux-lts` from Alpine repository
+- **Init System**: OpenRC + busybox init
 - **Shell**: bash
 
 ### Included Packages
-- Network tools: `iproute2`, `net-tools`, `iputils-ping`, `traceroute`, `mtr-tiny`, `tcpdump`, `ethtool`, `iperf3`
-- DNS tools: `bind9-dnsutils`, `bind9-host`
+- Network tools: `iproute2`, `net-tools`, `iputils`, `traceroute`, `mtr`, `tcpdump`, `ethtool`, `iperf3`
+- DNS tools: `bind-tools`
 - HTTP tools: `curl`, `wget`
 - LLDP: `lldpd`
-- Network configuration: `dhcpcd5`, `bridge-utils`, `vlan`
+- Network configuration: `dhcpcd` (VLAN/bond/bridge via `iproute2`)
 - Editors: `nano`, `less`
 - Interface: `dialog` (for TUI)
-- Keyboard: `kbd`, `console-data`
+- Keyboard: `kbd`, `kbd-bkeymaps`
 
 ### Firmware Support
-- Generic Linux firmware
 - Realtek adapters
 - Broadcom (bnx2, bnx2x)
-- QLogic
-- NetXen
+- QLogic (qlogic + qed)
 - Myricom
 - Netronome
 
 ### Boot Process
 1. GRUB loads kernel and initramfs
-2. Systemd starts and mounts the root filesystem (from initramfs)
-3. `generate-hostname.service` creates a unique hostname
+2. busybox init reads `/etc/inittab` and runs OpenRC sysinit/boot/default
+3. `generate-hostname` OpenRC service creates a unique hostname
 4. Network interfaces are brought up automatically
 5. `lldpd` starts and begins neighbor discovery
-6. `lldp-display.service` launches the main TUI interface on tty1
+6. `inittab` respawns the main TUI on tty1
 
 ### System Characteristics
 - **Read-only root**: Entire system runs from RAM
