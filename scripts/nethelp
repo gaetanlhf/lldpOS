@@ -3,11 +3,15 @@
 cat << 'HELP' | less
 === Network Configuration Helper ===
 
+Quick Overview:
+  ip-info
+    Show all interfaces, IPs, routes and DNS at a glance
+
 DHCP Configuration:
   dhcp-config <interface>
     Get IP address via DHCP
     Example: dhcp-config eth0
-    
+
     Remove DHCP:
       dhcpcd -k eth0
       ip addr flush dev eth0
@@ -16,41 +20,44 @@ DNS Configuration:
   dns-config <dns1> [dns2] [dns3]
     Configure DNS servers
     Example: dns-config 8.8.8.8 8.8.4.4
-    
+
     View current DNS:
       cat /etc/resolv.conf
 
 Static IP Configuration:
-  static-ip <interface> <ip/mask> <gateway>
-    Configure static IP address
+  static-ip <interface> <ip/mask> [gateway]
+    Configure static IP address (gateway is optional)
     Example: static-ip eth0 192.168.1.10/24 192.168.1.1
-    
+             static-ip eth0 10.0.0.5/24
+
     Remove static IP:
       ip addr del 192.168.1.10/24 dev eth0
       ip route del default
-    
+
     Flush all IPs from interface:
       ip addr flush dev eth0
-    
-    Bring interface down:
-      ip link set eth0 down
+
+Interface Reset:
+  iface-reset <interface>
+    Stop DHCP, flush IPs and routes, bring interface down then up
+    Example: iface-reset eth0
 
 VLAN Configuration:
   vlan-create <parent> <vlan_id>
-    Create VLAN interface (802.1Q)
+    Create VLAN interface (802.1Q), VLAN ID must be 1-4094
     Example: vlan-create eth0 100
     Then configure: static-ip eth0.100 192.168.100.10/24 192.168.100.1
-    
+
     Remove VLAN:
       ip link del eth0.100
-    
+
     List VLANs:
       ip -d link show type vlan
 
 Bond/LACP Configuration:
   bond-create <bond_name> <mode> <interface1> <interface2> ...
     Create bonded interface for link aggregation
-    
+
     Available modes:
       balance-rr (0)      - Round-robin policy (load balancing)
       active-backup (1)   - Active-backup policy (failover)
@@ -59,18 +66,18 @@ Bond/LACP Configuration:
       802.3ad (4)         - IEEE 802.3ad LACP (requires switch support)
       balance-tlb (5)     - Adaptive transmit load balancing
       balance-alb (6)     - Adaptive load balancing
-    
+
     Example LACP setup:
       bond-create bond0 802.3ad eth0 eth1
       static-ip bond0 192.168.1.10/24 192.168.1.1
-    
+
     Remove bond:
       ip link set bond0 down
       ip link del bond0
-    
+
     Remove slave from bond:
       ip link set eth0 nomaster
-    
+
     View bond status:
       cat /proc/net/bonding/bond0
 
@@ -79,18 +86,41 @@ Bridge Configuration:
     Create bridge interface (Layer 2 switch)
     Example: bridge-create br0 eth0 eth1
     Then configure: static-ip br0 192.168.1.10/24 192.168.1.1
-    
+
     Remove bridge:
       ip link set br0 down
       ip link del br0
-    
+
     Remove interface from bridge:
       ip link set eth0 nomaster
-    
+
     List bridge ports:
       bridge link
 
+TCP Connectivity Test:
+  port-test <host> <port> [timeout]
+    Test if a TCP port is reachable (default timeout: 5s)
+    Example: port-test 10.0.0.1 443
+             port-test google.com 80 3
+
+Diagnostic Tools:
+  ping <host>                 - Test basic connectivity
+  ping -c 4 <host>            - Send 4 packets and stop
+  traceroute <host>           - Show route path to destination
+  mtr <host>                  - Combined ping and traceroute
+  tcpdump -i <interface>      - Capture packets on interface
+  tcpdump -i <interface> -n   - Capture without DNS resolution
+  iperf3 -s                   - Start iperf3 server
+  iperf3 -c <host>            - Run iperf3 bandwidth test to server
+  ethtool <interface>         - Show interface details (speed, duplex)
+  curl -I <url>               - Test HTTP connectivity
+  dig <domain>                - DNS lookup
+  host <domain>               - Reverse/forward DNS lookup
+  ss -tulnp                   - Show listening ports
+  lldpctl                     - Query LLDP daemon directly
+
 View Network Configuration:
+  ip-info                     - Quick overview (recommended)
   ip addr                     - Show all interfaces and IP addresses
   ip route                    - Show routing table
   ip link                     - Show link status
@@ -99,30 +129,20 @@ View Network Configuration:
   cat /proc/net/bonding/*     - Show bond status
   bridge link                 - Show bridge ports
 
-Test Network Connectivity:
-  ping <host>                 - Test basic connectivity
-  ping -c 4 <host>            - Send 4 packets and stop
-  traceroute <host>           - Show route path to destination
-  mtr <host>                  - Live traceroute with statistics
-  tcpdump -i <interface>      - Capture packets on interface
-  tcpdump -i <interface> -n   - Capture without DNS resolution
-  curl -I <url>               - Test HTTP connectivity
-  dig <domain>                - DNS lookup
-
 Remove/Modify Configuration:
+  iface-reset <interface>           - Full reset (DHCP + IP + routes)
   ip addr flush dev <interface>     - Remove all IP addresses
   ip link set <interface> down      - Disable interface
   ip link set <interface> up        - Enable interface
   ip link del <interface>           - Delete virtual interface (VLAN/bond/bridge)
   ip route del default              - Remove default route
-  ip route flush cache              - Flush routing cache
 
 Advanced Examples:
 
 1. Configure LACP bond with two interfaces:
    bond-create bond0 802.3ad eth0 eth1
    static-ip bond0 10.0.0.10/24 10.0.0.1
-   
+
    Remove it:
    ip link set bond0 down
    ip link del bond0
@@ -130,14 +150,14 @@ Advanced Examples:
 2. Create VLAN and configure:
    vlan-create eth0 100
    dhcp-config eth0.100
-   
+
    Remove it:
    ip link del eth0.100
 
 3. Create bridge for VM networking:
    bridge-create br0 eth0 eth1
    static-ip br0 192.168.1.10/24 192.168.1.1
-   
+
    Remove it:
    ip link set br0 down
    ip link del br0
@@ -147,7 +167,7 @@ Advanced Examples:
    vlan-create eth0 200
    static-ip eth0.100 10.1.0.10/24 10.1.0.1
    static-ip eth0.200 10.2.0.10/24 10.2.0.1
-   
+
    Remove all:
    ip link del eth0.100
    ip link del eth0.200
@@ -158,12 +178,16 @@ Advanced Examples:
 6. Monitor traffic on interface:
    tcpdump -i eth0 -n not port 22
 
-7. Complete network reset:
-   for iface in $(ip -o link show | awk -F': ' '{print $2}' | grep -v lo); do
-     ip addr flush dev $iface
-     ip link set $iface down
-   done
-   ip route flush table main
+7. Test bandwidth between two lldpOS instances:
+   Server: iperf3 -s
+   Client: iperf3 -c <server-ip>
+
+8. Check firewall rules blocking a port:
+   port-test 10.0.0.1 22
+   port-test 10.0.0.1 443
+
+9. Complete network reset on an interface:
+   iface-reset eth0
 
 Press 'q' to exit this help
 HELP

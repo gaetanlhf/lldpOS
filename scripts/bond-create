@@ -1,4 +1,5 @@
 #!/bin/bash
+
 if [ -z "$3" ]; then
     echo "Usage: bond-create <bond_name> <mode> <interface1> <interface2> ..."
     echo ""
@@ -35,27 +36,44 @@ case $MODE in
     802.3ad|4) MODE_NUM=4 ;;
     balance-tlb|5) MODE_NUM=5 ;;
     balance-alb|6) MODE_NUM=6 ;;
-    *) echo "Invalid mode: $MODE"; exit 1 ;;
+    *) echo "Error: Invalid mode: $MODE"; exit 1 ;;
 esac
+
+for SLAVE in $SLAVES; do
+    if ! ip link show "$SLAVE" >/dev/null 2>&1; then
+        echo "Error: Interface $SLAVE does not exist"
+        echo "Available interfaces:"
+        ip -o link show | awk -F': ' '{print "  " $2}'
+        exit 1
+    fi
+done
 
 modprobe bonding 2>/dev/null
 echo "Creating bond $BOND with mode $MODE..."
-ip link add $BOND type bond mode $MODE_NUM
+ip link add "$BOND" type bond mode "$MODE_NUM"
 
 if [ "$MODE_NUM" = "4" ]; then
     echo "Setting LACP parameters..."
-    echo "fast" > /sys/class/net/$BOND/bonding/lacp_rate
-    echo 100 > /sys/class/net/$BOND/bonding/miimon
+    echo "fast" > "/sys/class/net/$BOND/bonding/lacp_rate"
+    echo 100 > "/sys/class/net/$BOND/bonding/miimon"
 fi
 
+FAILED=0
 for SLAVE in $SLAVES; do
     echo "Adding $SLAVE to $BOND..."
-    ip link set $SLAVE down
-    ip link set $SLAVE master $BOND
+    ip link set "$SLAVE" down
+    if ! ip link set "$SLAVE" master "$BOND"; then
+        echo "Error: Failed to add $SLAVE to $BOND"
+        FAILED=1
+    fi
 done
 
-ip link set $BOND up
+if [ "$FAILED" = "1" ]; then
+    echo "Warning: Some slaves failed to join the bond"
+fi
+
+ip link set "$BOND" up
 echo "Done. Bond interface: $BOND"
-echo "Configure with: static-ip $BOND <ip/mask> <gateway>"
+echo "Configure with: static-ip $BOND <ip/mask> [gateway]"
 echo "           or: dhcp-config $BOND"
 echo "View status: cat /proc/net/bonding/$BOND"

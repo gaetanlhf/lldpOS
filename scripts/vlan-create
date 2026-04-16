@@ -16,10 +16,22 @@ PARENT=$1
 VLAN_ID=$2
 VLAN_IFACE="${PARENT}.${VLAN_ID}"
 
+if ! ip link show "$PARENT" >/dev/null 2>&1; then
+    echo "Error: Interface $PARENT does not exist"
+    echo "Available interfaces:"
+    ip -o link show | awk -F': ' '{print "  " $2}'
+    exit 1
+fi
+
+if ! echo "$VLAN_ID" | grep -qE '^[0-9]+$' || [ "$VLAN_ID" -lt 1 ] || [ "$VLAN_ID" -gt 4094 ]; then
+    echo "Error: Invalid VLAN ID: $VLAN_ID (must be 1-4094)"
+    exit 1
+fi
+
 modprobe 8021q 2>/dev/null
 echo "Creating VLAN $VLAN_ID on $PARENT..."
-ip link add link $PARENT name $VLAN_IFACE type vlan id $VLAN_ID
-ip link set $VLAN_IFACE up
+ip link add link "$PARENT" name "$VLAN_IFACE" type vlan id "$VLAN_ID"
+ip link set "$VLAN_IFACE" up
 echo "Done. VLAN interface: $VLAN_IFACE"
-echo "Configure with: static-ip $VLAN_IFACE <ip/mask> <gateway>"
+echo "Configure with: static-ip $VLAN_IFACE <ip/mask> [gateway]"
 echo "           or: dhcp-config $VLAN_IFACE"

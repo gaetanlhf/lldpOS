@@ -1,0 +1,28 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+    echo "Usage: iface-reset <interface>"
+    echo "Example: iface-reset eth0"
+    echo ""
+    echo "Stops DHCP, flushes IPs and routes, brings interface down then up."
+    exit 1
+fi
+
+IFACE=$1
+
+if ! ip link show "$IFACE" >/dev/null 2>&1; then
+    echo "Error: Interface $IFACE does not exist"
+    echo "Available interfaces:"
+    ip -o link show | awk -F': ' '{print "  " $2}'
+    exit 1
+fi
+
+echo "Resetting $IFACE..."
+dhcpcd -k "$IFACE" 2>/dev/null && echo "  DHCP client stopped"
+ip addr flush dev "$IFACE" 2>/dev/null && echo "  IP addresses flushed"
+ip route flush dev "$IFACE" 2>/dev/null && echo "  Routes flushed"
+ip link set "$IFACE" down 2>/dev/null
+ip link set "$IFACE" up 2>/dev/null
+echo "Done. $IFACE is up with no configuration."
+echo "Reconfigure with: dhcp-config $IFACE"
+echo "              or: static-ip $IFACE <ip/mask> [gateway]"

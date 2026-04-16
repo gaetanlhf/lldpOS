@@ -1,4 +1,5 @@
 #!/bin/bash
+
 if [ -z "$1" ]; then
     echo "Usage: dhcp-config <interface>"
     echo "Example: dhcp-config eth0"
@@ -10,7 +11,15 @@ if [ -z "$1" ]; then
 fi
 
 IFACE=$1
+
+if ! ip link show "$IFACE" >/dev/null 2>&1; then
+    echo "Error: Interface $IFACE does not exist"
+    echo "Available interfaces:"
+    ip -o link show | awk -F': ' '{print "  " $2}'
+    exit 1
+fi
+
 echo "Configuring $IFACE with DHCP..."
-ip link set $IFACE up
-dhcpcd $IFACE
+ip link set "$IFACE" up
+dhcpcd "$IFACE"
 echo "Done. Check with: ip addr show $IFACE"

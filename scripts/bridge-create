@@ -1,4 +1,5 @@
 #!/bin/bash
+
 if [ -z "$2" ]; then
     echo "Usage: bridge-create <bridge_name> <interface1> <interface2> ..."
     echo "Example: bridge-create br0 eth0 eth1"
@@ -19,16 +20,25 @@ BRIDGE=$1
 shift
 IFACES="$@"
 
+for IFACE in $IFACES; do
+    if ! ip link show "$IFACE" >/dev/null 2>&1; then
+        echo "Error: Interface $IFACE does not exist"
+        echo "Available interfaces:"
+        ip -o link show | awk -F': ' '{print "  " $2}'
+        exit 1
+    fi
+done
+
 echo "Creating bridge $BRIDGE..."
-ip link add $BRIDGE type bridge
+ip link add "$BRIDGE" type bridge
 
 for IFACE in $IFACES; do
     echo "Adding $IFACE to $BRIDGE..."
-    ip link set $IFACE up
-    ip link set $IFACE master $BRIDGE
+    ip link set "$IFACE" up
+    ip link set "$IFACE" master "$BRIDGE"
 done
 
-ip link set $BRIDGE up
+ip link set "$BRIDGE" up
 echo "Done. Bridge interface: $BRIDGE"
-echo "Configure with: static-ip $BRIDGE <ip/mask> <gateway>"
+echo "Configure with: static-ip $BRIDGE <ip/mask> [gateway]"
 echo "           or: dhcp-config $BRIDGE"

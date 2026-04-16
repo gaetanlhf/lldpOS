@@ -1,0 +1,42 @@
+#!/bin/bash
+
+if [ -z "$2" ]; then
+    echo "Usage: port-test <host> <port> [timeout]"
+    echo "Example: port-test 10.0.0.1 443"
+    echo "         port-test google.com 80 3"
+    echo ""
+    echo "Default timeout: 5 seconds"
+    exit 1
+fi
+
+HOST=$1
+PORT=$2
+TIMEOUT=${3:-5}
+
+if ! echo "$PORT" | grep -qE '^[0-9]+$' || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    echo "Error: Invalid port: $PORT (must be 1-65535)"
+    exit 1
+fi
+
+echo "Testing $HOST:$PORT (timeout ${TIMEOUT}s)..."
+if (echo > "/dev/tcp/$HOST/$PORT") 2>/dev/null & pid=$!; then
+    sleep_count=0
+    while [ "$sleep_count" -lt "$TIMEOUT" ]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid" 2>/dev/null
+            if [ $? -eq 0 ]; then
+                echo "OPEN - $HOST:$PORT is reachable"
+                exit 0
+            else
+                echo "CLOSED - $HOST:$PORT refused connection"
+                exit 1
+            fi
+        fi
+        sleep 1
+        sleep_count=$((sleep_count + 1))
+    done
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+    echo "TIMEOUT - $HOST:$PORT no response after ${TIMEOUT}s"
+    exit 1
+fi

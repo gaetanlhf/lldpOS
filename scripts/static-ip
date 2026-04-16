@@ -1,8 +1,9 @@
 #!/bin/bash
 
-if [ -z "$3" ]; then
-    echo "Usage: static-ip <interface> <ip/mask> <gateway>"
+if [ -z "$2" ]; then
+    echo "Usage: static-ip <interface> <ip/mask> [gateway]"
     echo "Example: static-ip eth0 192.168.1.10/24 192.168.1.1"
+    echo "         static-ip eth0 10.0.0.5/24"
     echo ""
     echo "Remove configuration:"
     echo "  ip addr del 192.168.1.10/24 dev eth0"
@@ -17,10 +18,30 @@ IFACE=$1
 IP=$2
 GW=$3
 
+if ! ip link show "$IFACE" >/dev/null 2>&1; then
+    echo "Error: Interface $IFACE does not exist"
+    echo "Available interfaces:"
+    ip -o link show | awk -F': ' '{print "  " $2}'
+    exit 1
+fi
+
+if ! echo "$IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+    echo "Error: Invalid IP/CIDR format: $IP"
+    echo "Expected format: x.x.x.x/xx (e.g., 192.168.1.10/24)"
+    exit 1
+fi
+
 echo "Configuring $IFACE with static IP..."
-ip link set $IFACE up
-ip addr add $IP dev $IFACE
-ip route add default via $GW
-echo "nameserver 8.8.8.8" > /etc/resolv.conf
-echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+ip link set "$IFACE" up
+ip addr add "$IP" dev "$IFACE"
+
+if [ -n "$GW" ]; then
+    if ! echo "$GW" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        echo "Error: Invalid gateway IP: $GW"
+        exit 1
+    fi
+    ip route add default via "$GW"
+    echo "Gateway: $GW"
+fi
+
 echo "Done. Check with: ip addr show $IFACE"

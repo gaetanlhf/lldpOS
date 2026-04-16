@@ -23,6 +23,10 @@ echo "Configuring DNS servers..."
 echo "# Configured by dns-config" > /etc/resolv.conf
 
 for dns in "$@"; do
+    if ! echo "$dns" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        echo "Error: Invalid DNS server IP: $dns"
+        exit 1
+    fi
     echo "nameserver $dns" >> /etc/resolv.conf
     echo "Added: $dns"
 done
